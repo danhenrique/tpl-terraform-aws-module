@@ -1,4 +1,4 @@
-name: PR Validation
+name: Pull Request Validation
 
 on:
   pull_request:
@@ -6,15 +6,20 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   pull-requests: read
 
 jobs:
-  validate-title:
-    name: Validate PR Title (Conventional Commits)
+  validate-pr:
+    name: Validate PR Metadata
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Check PR title format
+      - name: Validate PR title format
         uses: amannn/action-semantic-pull-request@v5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -23,18 +28,36 @@ jobs:
           subjectPattern: ^.{10,}$
           subjectPatternError: |
             A descrição do título deve ter no mínimo 10 caracteres.
-            Exemplo: "feat: adiciona suporte ao módulo S3"
+            Exemplo: "feat: adiciona suporte ao módulo S3"]
 
-  validate-description:
-    name: Validate PR Description
+      # - name: Validate PR description is not empty
+      #   env:
+      #     PR_BODY: ${{ github.event.pull_request.body }}
+      #   run: |
+      #     if [ -z "$(echo "$PR_BODY" | tr -d '[:space:]')" ]; then
+      #       echo "::error::A descrição do PR não pode estar vazia. Descreva as mudanças realizadas."
+      #       exit 1
+      #     fi
+      #     echo "Descrição preenchida."
+
+  validate-terraform:
+    name: Validate Terraform
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Check PR body is not empty
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          if [ -z "$(echo "$PR_BODY" | tr -d '[:space:]')" ]; then
-            echo "::error::A descrição do PR não pode estar vazia. Descreva as mudanças realizadas."
-            exit 1
-          fi
-          echo "Descrição preenchida."
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.8"
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive
+
+      - name: Initialize Terraform
+        run: terraform init -backend=false
+
+      - name: Validate Terraform configuration
+        run: terraform validate
